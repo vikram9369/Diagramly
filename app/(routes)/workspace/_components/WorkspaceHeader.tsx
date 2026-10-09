@@ -3,10 +3,17 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search } from "lucide-react";
+import {
+  MoreVertical,
+  Share2,
+  Download,
+} from "lucide-react";
 import Image from "next/image";
 import React, { useState } from "react";
 import OnlineUsers from "./OnlineUsers";
+import ProfileMenu from "@/components/menu";
+import ViewSwitcher from "./ViewSwitcher";
+import type { PanelMode, WorkspacePanel } from "./Workspace";
 
 function WorkspaceHeader({
   onSave,
@@ -14,29 +21,66 @@ function WorkspaceHeader({
   setFileName,
   isLive,
   setIsLive,
+  openPanels,
+  showDashboard,
+  panelMode,
+  onPanelToggle,
+  onPanelModeChange,
+  onDashboard,
 }: {
   onSave: () => void;
   fileName: string;
   setFileName: React.Dispatch<React.SetStateAction<string>>;
   isLive: boolean;
   setIsLive: React.Dispatch<React.SetStateAction<boolean>>;
+
+  openPanels: Record<WorkspacePanel, boolean>;
+  showDashboard: boolean;
+  panelMode: PanelMode;
+  onPanelToggle: (panel: WorkspacePanel) => void;
+  onPanelModeChange: (mode: PanelMode) => void;
+  onDashboard: () => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
+  const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
 
   const handleLiveToggle = () => {
     if (!isLive) {
-      const confirmLive = window.confirm("Are you sure you want to go live?");
+      const confirmLive = window.confirm(
+        "Are you sure you want to go live?"
+      );
+
       if (!confirmLive) return;
     }
+
     setIsLive(!isLive);
   };
 
+  const handleShare = () => {
+    // Keep your existing share logic here later.
+    alert("Share");
+    setIsWorkspaceMenuOpen(false);
+  };
+
+  const handleDownload = () => {
+    // Keep your existing download/save logic here later.
+    onSave();
+    setIsWorkspaceMenuOpen(false);
+  };
+
   return (
-    <header className="h-16 border-b border-gray-200 bg-white px-6 flex items-center justify-between gap-6">
-      <div className="flex items-center gap-4 min-w-0">
-        <Link href="/" className="shrink-0">
+    <header className="relative z-50 flex h-16 items-center justify-between gap-2 border-b border-gray-200 bg-white px-2 sm:gap-6 sm:px-6">
+
+      {/* LEFT */}
+      <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+
+        {/* LOGO */}
+        <Link
+          href="/dashboard"
+          className="shrink-0"
+        >
           <Image
-            src="/logo-1.png"
+            src="/diahead.gif"
             alt="Logo"
             width={40}
             height={40}
@@ -44,69 +88,88 @@ function WorkspaceHeader({
           />
         </Link>
 
+        {/* FILE NAME */}
         {isEditing ? (
-          <div className="flex items-center rounded-lg bg-gray-100 px-2">
+          <div className="flex min-w-0 items-center rounded-lg bg-gray-100 px-2">
             <Input
               autoFocus
               value={fileName}
               onChange={(e) => setFileName(e.target.value)}
               onBlur={() => setIsEditing(false)}
-              onKeyDown={(e) => e.key === "Enter" && setIsEditing(false)}
-              className="h-9 w-48 border-0 bg-transparent p-0 text-[15px] font-medium shadow-none focus-visible:ring-0"
+              onKeyDown={(e) =>
+                e.key === "Enter" && setIsEditing(false)
+              }
+              className="h-9 w-24 border-0 bg-transparent p-0 text-xs font-medium shadow-none focus-visible:ring-0 sm:w-48 sm:text-[15px]"
             />
-            <span className="text-[15px] font-medium text-gray-400">.pdf</span>
+
+            <span className="text-xs font-medium text-gray-400 sm:text-[15px]">
+              .pdf
+            </span>
           </div>
         ) : (
           <button
             onClick={() => setIsEditing(true)}
-            className="group flex h-9 items-center gap-1 rounded-lg px-2 transition-colors hover:bg-gray-100"
+            className="group flex h-9 min-w-0 max-w-[120px] items-center gap-1 rounded-lg px-1.5 transition-colors hover:bg-gray-100 sm:max-w-[220px] sm:px-2"
           >
-            <span className="max-w-[220px] truncate text-[15px] font-medium text-gray-900">
+            <span className="truncate text-xs font-medium text-gray-900 sm:text-[15px]">
               {fileName}
             </span>
-            <span className="text-[15px] text-gray-400">.pdf</span>
+
+            <span className="shrink-0 text-xs text-gray-400 sm:text-[15px]">
+              .pdf
+            </span>
           </button>
         )}
       </div>
 
-      <div className="flex-1 flex justify-center px-4">
-        <div className="relative w-full max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search..."
-            className="w-full h-10 rounded-lg border border-gray-200 bg-gray-50 pl-10 pr-4 text-sm text-gray-900 outline-none transition-all focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
-          />
-        </div>
+      {/* CENTER — VIEW SWITCHER */}
+      <div className="flex flex-1 justify-center px-1 sm:px-4">
+        <ViewSwitcher
+          openPanels={openPanels}
+          showDashboard={showDashboard}
+          panelMode={panelMode}
+          onPanelToggle={onPanelToggle}
+          onPanelModeChange={onPanelModeChange}
+          onDashboard={onDashboard}
+        />
       </div>
 
-      <div className="flex items-center gap-4 shrink-0">
+      {/* RIGHT */}
+      <div className="flex shrink-0 items-center gap-1.5 sm:gap-4">
+
+        {/* ONLINE USERS */}
         {isLive && (
-          <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+          <div className="hidden animate-in fade-in slide-in-from-right-4 duration-300 sm:block">
             <OnlineUsers />
           </div>
         )}
 
+        {/* LIVE */}
         <button
           onClick={handleLiveToggle}
-          className={`group flex items-center gap-2.5 rounded-full border py-1.5 pl-2 pr-4 transition-all duration-300 ${
+          className={`group flex items-center gap-1.5 rounded-full border px-2 py-1.5 transition-all duration-300 sm:gap-2.5 sm:py-1.5 sm:pl-2 sm:pr-4 ${
             isLive
               ? "border-red-200 bg-red-50 hover:bg-red-100"
               : "border-slate-200 bg-white hover:bg-slate-50"
           }`}
+          title={isLive ? "Live" : "Offline"}
         >
           <div className="relative flex items-center justify-center">
             {isLive && (
               <span className="absolute h-3.5 w-3.5 animate-ping rounded-full bg-red-400 opacity-75" />
             )}
+
             <span
               className={`relative h-2.5 w-2.5 rounded-full transition-colors duration-300 ${
-                isLive ? "bg-red-500" : "bg-slate-300 group-hover:bg-slate-400"
+                isLive
+                  ? "bg-red-500"
+                  : "bg-slate-300 group-hover:bg-slate-400"
               }`}
             />
           </div>
+
           <span
-            className={`text-xs font-bold uppercase tracking-wider transition-colors ${
+            className={`hidden text-xs font-bold uppercase tracking-wider transition-colors sm:block ${
               isLive ? "text-red-600" : "text-slate-500"
             }`}
           >
@@ -114,33 +177,82 @@ function WorkspaceHeader({
           </span>
         </button>
 
-        <div className="h-6 w-px bg-gray-200" />
+        {/* DESKTOP SHARE + SAVE */}
+        <div className="hidden items-center gap-2 sm:flex">
 
-        <div className="flex items-center gap-2">
+          {/* SHARE */}
           <Button
             variant="outline"
             className="h-10 rounded-lg border-gray-200 bg-white px-4 text-gray-700 shadow-sm hover:bg-gray-50"
+            onClick={handleShare}
           >
-            <img src="/sh.svg" className="mr-2 h-4 w-4" alt="" />
+            <img
+              src="/sh.svg"
+              className="mr-2 h-4 w-4"
+              alt=""
+            />
             Share
           </Button>
 
+          {/* SAVE */}
           <Button
-            onClick={() => alert("Coming soon")}
+            onClick={handleDownload}
             className="h-10 rounded-lg bg-blue-600 px-5 text-white shadow-sm hover:bg-blue-700"
           >
-            <img src="/dow.svg" className="mr-2 h-4 w-4 invert" alt="" />
+            <img
+              src="/dow.svg"
+              className="mr-2 h-4 w-4 invert"
+              alt=""
+            />
             Save
           </Button>
+
         </div>
 
-        <Button className="h-10 w-10 p-0 rounded-full bg-transparent ring-1 ring-transparent transition-all hover:ring-gray-200">
-          <img
-            src="/p.png"
-            alt="Profile"
-            className="h-9 w-9 rounded-full object-cover"
-          />
-        </Button>
+        {/* MOBILE 3-DOT WORKSPACE MENU */}
+        <div className="relative sm:hidden">
+
+          <button
+            onClick={() =>
+              setIsWorkspaceMenuOpen((open) => !open)
+            }
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-700 shadow-sm transition hover:bg-gray-50 active:scale-95"
+            title="Workspace actions"
+            aria-label="Workspace actions"
+            aria-expanded={isWorkspaceMenuOpen}
+          >
+            <MoreVertical className="h-5 w-5" />
+          </button>
+
+          {isWorkspaceMenuOpen && (
+            <div className="absolute right-0 top-11 w-44 overflow-hidden rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl">
+
+              {/* SHARE */}
+              <button
+                onClick={handleShare}
+                className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+              >
+                <Share2 className="h-4 w-4 text-gray-500" />
+                Share
+              </button>
+
+              {/* DOWNLOAD */}
+              <button
+                onClick={handleDownload}
+                className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+              >
+                <Download className="h-4 w-4 text-gray-500" />
+                Download
+              </button>
+
+            </div>
+          )}
+
+        </div>
+
+        {/* PROFILE */}
+        <ProfileMenu />
+
       </div>
     </header>
   );

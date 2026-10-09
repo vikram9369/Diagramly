@@ -1,92 +1,66 @@
-"use client"
+"use client";
 
-import React, { useEffect, useRef } from 'react'
-import EditorJS from '@editorjs/editorjs'
-// @ts-ignore
-import Header from '@editorjs/header'
-// @ts-ignore
-import List from "@editorjs/list"
-// @ts-ignore
-import Checklist from '@editorjs/checklist'
-// @ts-ignore
-import Paragraph from '@editorjs/paragraph'
-// @ts-ignore
-import Warning from '@editorjs/warning'
+import React, { ClipboardEvent, DragEvent, useCallback, useEffect, useRef, useState } from "react";
+import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, Code, FileUp, Highlighter, Italic, Link2, List, ListOrdered, Redo2, Strikethrough, Underline, Undo2, Upload, X } from "lucide-react";
 
-const rawDocument = {
-  time: Date.now(),
-  blocks: [
-    {
-      type: 'header',
-      data: {
-        text: 'Start writing here...',
-        level: 2
-      }
-    }
-  ],
-  version: "2.8.1"
+type Inline = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; strike?: boolean; code?: boolean; highlight?: boolean; href?: string };
+type Block = { type: "paragraph" | "heading" | "bulletList" | "orderedList"; level?: 1 | 2 | 3; align?: "left" | "center" | "right" | "justify"; children: Inline[] };
+export type DiagramlyDocument = { version: 1; title: string; author: string; content: Block[]; metadata: { wordCount: number; characterCount: number } };
+const empty = (): DiagramlyDocument => ({ version: 1, title: "Untitled", author: "Unknown", content: [{ type: "paragraph", children: [] }], metadata: { wordCount: 0, characterCount: 0 } });
+
+function readInline(node: Node, marks: Omit<Inline, "text"> = {}): Inline[] {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ? [{ text: node.textContent, ...marks }] : [];
+  if (!(node instanceof HTMLElement)) return [];
+  const tag = node.tagName.toLowerCase();
+  const href = node.getAttribute("href") || "";
+  const next = { ...marks, bold: marks.bold || ["b", "strong"].includes(tag), italic: marks.italic || ["i", "em"].includes(tag), underline: marks.underline || tag === "u", strike: marks.strike || ["s", "strike", "del"].includes(tag), code: marks.code || tag === "code", highlight: marks.highlight || tag === "mark", href: tag === "a" && /^https?:\/\//i.test(href) ? href : marks.href };
+  return Array.from(node.childNodes).flatMap((child) => readInline(child, next));
+}
+function toDocument(canvas: HTMLElement, title: string, author: string): DiagramlyDocument {
+  const content: Block[] = Array.from(canvas.children).flatMap((element): Block[] => {
+    const tag = element.tagName.toLowerCase(); const textAlign = (element as HTMLElement).style.textAlign;
+    const align = (["left", "center", "right", "justify"].includes(textAlign) ? textAlign : "left") as Block["align"];
+    if (tag === "ul" || tag === "ol") return Array.from(element.children).map((li) => ({ type: tag === "ul" ? "bulletList" as const : "orderedList" as const, align, children: Array.from(li.childNodes).flatMap((node) => readInline(node)) }));
+    return [{ type: /^h[1-3]$/.test(tag) ? "heading" as const : "paragraph" as const, level: /^h[1-3]$/.test(tag) ? Number(tag[1]) as 1 | 2 | 3 : undefined, align, children: Array.from(element.childNodes).flatMap((node) => readInline(node)) }];
+  });
+  const valid = content.length ? content : empty().content; const plain = valid.flatMap((block) => block.children.map((inline) => inline.text)).join(" ");
+  return { version: 1, title: title.trim() || "Untitled", author: author.trim() || "Unknown", content: valid, metadata: { characterCount: plain.length, wordCount: plain.trim() ? plain.trim().split(/\s+/).length : 0 } };
+}
+function addInline(parent: HTMLElement, inline: Inline) {
+  const node = document.createElement(inline.href ? "a" : "span"); node.textContent = inline.text;
+  if (inline.href) { node.setAttribute("href", inline.href); node.setAttribute("target", "_blank"); node.setAttribute("rel", "noopener noreferrer"); }
+  if (inline.bold) node.style.fontWeight = "700"; if (inline.italic) node.style.fontStyle = "italic"; if (inline.underline) node.style.textDecoration += " underline"; if (inline.strike) node.style.textDecoration += " line-through"; if (inline.code) { node.style.fontFamily = "monospace"; node.style.background = "#f1f5f9"; } if (inline.highlight) node.style.background = "#fef08a"; parent.appendChild(node);
+}
+function render(canvas: HTMLElement, data: DiagramlyDocument) {
+  canvas.replaceChildren(); let list: HTMLElement | null = null; let currentType = "";
+  data.content.forEach((block) => { const isList = block.type === "bulletList" || block.type === "orderedList";
+    if (isList) { if (!list || currentType !== block.type) { list = document.createElement(block.type === "bulletList" ? "ul" : "ol"); currentType = block.type; canvas.appendChild(list); } const li = document.createElement("li"); li.style.textAlign = block.align || "left"; block.children.forEach((inline) => addInline(li, inline)); list.appendChild(li); return; }
+    list = null; currentType = ""; const node = document.createElement(block.type === "heading" ? `h${block.level || 2}` : "p"); node.style.textAlign = block.align || "left"; if (!block.children.length) node.appendChild(document.createElement("br")); block.children.forEach((inline) => addInline(node, inline)); canvas.appendChild(node);
+  });
+}
+function normalize(value: unknown): DiagramlyDocument {
+  if (value && typeof value === "object" && "version" in value && "content" in value) return value as DiagramlyDocument;
+  const legacy = value as { blocks?: Array<{ type?: string; data?: { text?: string; level?: number; items?: string[] } }> } | undefined;
+  if (!legacy?.blocks) return empty();
+  const content = legacy.blocks.flatMap((block): Block[] => { const text = block.data?.text?.replace(/<[^>]*>/g, "") || ""; if (block.type === "list" || block.type === "checklist") return (block.data?.items || [text]).map((item) => ({ type: "bulletList" as const, children: [{ text: item }] })); return [{ type: block.type === "header" ? "heading" as const : "paragraph" as const, level: block.type === "header" ? Math.min(Math.max(block.data?.level || 2, 1), 3) as 1 | 2 | 3 : undefined, children: [{ text }] }]; });
+  return { ...empty(), content: content.length ? content : empty().content };
 }
 
-function Editor({ onSaveTrigger }: { onSaveTrigger?: any }) {
-
-  const ref = useRef<EditorJS | null>(null)
-
-  useEffect(() => {
-    initEditor()
-  }, [])
-
-  useEffect(() => {
-    if (onSaveTrigger) {
-      onSaveDocument()
-    }
-  }, [onSaveTrigger])
-
-  const initEditor = () => {
-    if (ref.current) return
-
-    const editor = new EditorJS({
-      holder: 'editorjs',
-      data: rawDocument,
-      tools: {
-  header: {
-    class: Header as any,
-    shortcut: "CMD+SHIFT+H",
-    config: {
-      placeholder: "Enter a Header",
-    },
-  },
-  list: {
-    class: List as any,
-    inlineToolbar: true,
-  },
-  checklist: {
-    class: Checklist as any,
-    inlineToolbar: true,
-  },
-  paragraph: Paragraph as any,
-  warning: Warning as any,
-},
-    })
-
-    ref.current = editor
-  }
-
-  const onSaveDocument = () => {
-    if (ref.current) {
-      ref.current.save().then((outputData) => {
-        console.log("Saved document:", outputData)
-      }).catch((error) => {
-        console.log('Saving failed:', error)
-      })
-    }
-  }
-
-  return (
-    <div>
-      <div id='editorjs' className='ml-20'></div>
-    </div>
-  )
+export default function Editor({ workspaceId, onSaveTrigger, onSaveComplete }: { workspaceId: string; onSaveTrigger?: number; onSaveComplete?: (success: boolean) => void }) {
+  const canvas = useRef<HTMLDivElement>(null); const [title, setTitle] = useState("Untitled"); const [author, setAuthor] = useState("Unknown"); const [status, setStatus] = useState<"loading" | "saved" | "saving" | "unsaved" | "error">("loading"); const [uploadOpen, setUploadOpen] = useState(false); const [urlOpen, setUrlOpen] = useState(false); const [url, setUrl] = useState(""); const [importError, setImportError] = useState("");
+  const save = useCallback(async () => { if (!canvas.current) return false; setStatus("saving"); try { const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document: toDocument(canvas.current, title, author) }) }); if (!response.ok) throw new Error(); setStatus("saved"); return true; } catch { setStatus("error"); return false; } }, [author, title, workspaceId]);
+  useEffect(() => { if (onSaveTrigger) void save().then((success) => onSaveComplete?.(success)); }, [onSaveTrigger, save, onSaveComplete]);
+  useEffect(() => { let alive = true; (async () => { try { const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`, { cache: "no-store" }); const result = await response.json(); if (!alive) return; const data = normalize(result.workspace?.document); setTitle(data.title); setAuthor(data.author); if (canvas.current) render(canvas.current, data); setStatus("saved"); } catch { if (alive) setStatus("error"); } })(); return () => { alive = false; }; }, [workspaceId]);
+  useEffect(() => { const timer = window.setTimeout(() => { if (status === "unsaved") void save(); }, 1200); return () => window.clearTimeout(timer); }, [status, save]);
+  const command = (name: string, value?: string) => { canvas.current?.focus(); document.execCommand(name, false, value); setStatus("unsaved"); };
+  const importText = (text: string) => { if (!canvas.current) return; canvas.current.replaceChildren(...text.replace(/\r\n/g, "\n").split(/\n{2,}/).map((part) => { const p = document.createElement("p"); p.textContent = part; return p; })); setStatus("unsaved"); };
+  const readFile = async (file: File) => { if (file.size > 10 * 1024 * 1024) return setImportError("Files must be 10MB or smaller."); if (!/\.(txt|md|csv|json)$/i.test(file.name)) return setImportError("This workspace has no file-conversion backend. Import .txt, .md, .csv, or .json files."); importText(await file.text()); setUploadOpen(false); };
+  const importUrl = async () => { try { const target = new URL(url); if (!/^https?:$/.test(target.protocol)) throw new Error(); const response = await fetch(target.href); if (!response.ok) throw new Error(); const source = await response.text(); importText(new DOMParser().parseFromString(source, "text/html").body.textContent || ""); setUrlOpen(false); } catch { setImportError("Could not import this URL. The site may block browser requests."); } };
+  const tool = "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-950 dark:hover:text-slate-100";
+  return <section className="min-h-full bg-slate-50 dark:bg-slate-950 p-3 sm:p-5"><div className="mx-auto max-w-5xl space-y-4">
+    <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Document title<input value={title} onChange={(e) => { setTitle(e.target.value); setStatus("unsaved"); }} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 text-sm font-medium text-slate-900 dark:text-slate-100 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900" /></label><label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Document author<input value={author} onChange={(e) => { setAuthor(e.target.value); setStatus("unsaved"); }} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 text-sm text-slate-900 dark:text-slate-100 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900" /></label></div>
+    <div className="flex flex-wrap gap-2"><button onClick={() => setUploadOpen(true)} className="inline-flex items-center gap-2 rounded-lg border dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 dark:text-slate-200"><FileUp className="h-4 w-4" />File upload</button><button onClick={() => setUploadOpen(true)} className="inline-flex items-center gap-2 rounded-lg border dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 dark:text-slate-200"><Upload className="h-4 w-4" />Bulk upload</button><button onClick={() => setUrlOpen(true)} className="inline-flex items-center gap-2 rounded-lg border dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 dark:text-slate-200"><Link2 className="h-4 w-4" />Import from URL</button><span className="ml-auto self-center text-xs text-slate-500 dark:text-slate-400">{status === "saving" ? "Saving…" : status === "saved" ? "Saved" : status === "unsaved" ? "Unsaved changes" : status === "error" ? "Save failed" : "Loading…"}</span></div>
+    <div className="flex max-w-full overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1 shadow-sm"><select aria-label="Text style" onChange={(e) => command("formatBlock", e.target.value)} className="h-8 shrink-0 rounded-md border-0 bg-transparent px-2 text-xs outline-none dark:text-slate-200"><option value="p">Text</option><option value="h1">Heading 1</option><option value="h2">Heading 2</option><option value="h3">Heading 3</option></select><span className="mx-1 border-l dark:border-slate-700" /><button aria-label="Bold" onClick={() => command("bold")} className={tool}><Bold className="h-4 w-4" /></button><button aria-label="Italic" onClick={() => command("italic")} className={tool}><Italic className="h-4 w-4" /></button><button aria-label="Underline" onClick={() => command("underline")} className={tool}><Underline className="h-4 w-4" /></button><button aria-label="Strikethrough" onClick={() => command("strikeThrough")} className={tool}><Strikethrough className="h-4 w-4" /></button><button aria-label="Highlight" onClick={() => command("hiliteColor", "#fef08a")} className={tool}><Highlighter className="h-4 w-4" /></button><button aria-label="Bullet list" onClick={() => command("insertUnorderedList")} className={tool}><List className="h-4 w-4" /></button><button aria-label="Ordered list" onClick={() => command("insertOrderedList")} className={tool}><ListOrdered className="h-4 w-4" /></button><button aria-label="Code" onClick={() => command("formatBlock", "pre")} className={tool}><Code className="h-4 w-4" /></button><button aria-label="Add link" onClick={() => { const value = window.prompt("Link URL"); if (value && /^https?:\/\//i.test(value)) command("createLink", value); }} className={tool}><Link2 className="h-4 w-4" /></button><span className="mx-1 border-l dark:border-slate-700" /><button aria-label="Align left" onClick={() => command("justifyLeft")} className={tool}><AlignLeft className="h-4 w-4" /></button><button aria-label="Align center" onClick={() => command("justifyCenter")} className={tool}><AlignCenter className="h-4 w-4" /></button><button aria-label="Align right" onClick={() => command("justifyRight")} className={tool}><AlignRight className="h-4 w-4" /></button><button aria-label="Justify" onClick={() => command("justifyFull")} className={tool}><AlignJustify className="h-4 w-4" /></button><span className="mx-1 border-l dark:border-slate-700" /><button aria-label="Undo" onClick={() => command("undo")} className={tool}><Undo2 className="h-4 w-4" /></button><button aria-label="Redo" onClick={() => command("redo")} className={tool}><Redo2 className="h-4 w-4" /></button></div>
+    <div ref={canvas} contentEditable suppressContentEditableWarning role="textbox" aria-multiline="true" data-placeholder="Paste your text here (min. 500 characters)" onInput={() => setStatus("unsaved")} onPaste={(event: ClipboardEvent<HTMLDivElement>) => { event.preventDefault(); document.execCommand("insertText", false, event.clipboardData.getData("text/plain")); setStatus("unsaved"); }} className="min-h-[520px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 text-[15px] leading-7 text-slate-800 dark:text-slate-200 shadow-sm outline-none empty:before:pointer-events-none empty:before:text-slate-400 empty:before:content-[attr(data-placeholder)] sm:p-10 [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-3 [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:mb-2 [&_h3]:text-xl [&_h3]:font-semibold [&_p]:mb-4 [&_pre]:mb-4 [&_pre]:rounded-md [&_pre]:bg-slate-100 dark:[&_pre]:bg-slate-800 [&_pre]:p-3 [&_pre]:font-mono [&_ul]:mb-4 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:mb-4 [&_ol]:list-decimal [&_ol]:pl-6" />
+  </div>{uploadOpen && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/35 dark:bg-slate-950/80 p-4"><div className="w-full max-w-lg rounded-xl bg-white dark:bg-slate-900 dark:text-slate-200 p-6 shadow-xl border dark:border-slate-800"><div className="flex items-center justify-between"><h2 className="text-lg font-semibold">Upload file</h2><button onClick={() => setUploadOpen(false)}><X className="h-5 w-5 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300" /></button></div><label onDrop={(e: DragEvent<HTMLLabelElement>) => { e.preventDefault(); const file = e.dataTransfer.files[0]; if (file) void readFile(file); }} onDragOver={(e) => e.preventDefault()} className="mt-5 flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 dark:border-slate-700 px-4 text-center hover:bg-slate-50 dark:hover:bg-slate-800/50 transition"><Upload className="mb-3 h-8 w-8 text-blue-600 dark:text-blue-500" /><span className="text-sm font-medium">Drop file here or click to browse</span><span className="mt-2 text-xs text-slate-500 dark:text-slate-400">.txt, .md, .csv, .json up to 10MB</span><input type="file" className="sr-only" accept=".txt,.md,.csv,.json" onChange={(e) => { const file = e.target.files?.[0]; if (file) void readFile(file); }} /></label>{importError && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{importError}</p>}<p className="mt-4 text-xs text-slate-500 dark:text-slate-400">Imported text may differ from the original formatting. Please review before saving.</p></div></div>}{urlOpen && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/35 dark:bg-slate-950/80 p-4"><div className="w-full max-w-md rounded-xl bg-white dark:bg-slate-900 dark:text-slate-200 p-6 shadow-xl border dark:border-slate-800"><div className="flex justify-between"><h2 className="text-lg font-semibold">Import from URL</h2><button onClick={() => setUrlOpen(false)}><X className="h-5 w-5 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300" /></button></div><input autoFocus value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com" className="mt-5 h-10 w-full rounded-lg border dark:border-slate-700 dark:bg-slate-800 px-3 text-sm outline-none focus:border-blue-500" />{importError && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{importError}</p>}<div className="mt-5 flex justify-end gap-2"><button onClick={() => setUrlOpen(false)} className="rounded-lg border dark:border-slate-700 px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition">Cancel</button><button onClick={() => void importUrl()} className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 transition">Import URL</button></div></div></div>}</section>;
 }
-
-export default Editor
-

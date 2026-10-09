@@ -1,26 +1,63 @@
 import { Liveblocks } from "@liveblocks/node";
 import { NextRequest, NextResponse } from "next/server";
+import jwt from "jsonwebtoken";
 
 const liveblocks = new Liveblocks({
   secret: process.env.LIVEBLOCKS_SECRET_KEY!,
 });
 
-const COLORS = ["#3B82F6", "#F59E0B", "#10B981", "#EF4444", "#8B5CF6", "#EC4899"];
+const COLORS = [
+  "#3B82F6",
+  "#F59E0B",
+  "#10B981",
+  "#EF4444",
+  "#8B5CF6",
+  "#EC4899",
+];
 
 export async function POST(req: NextRequest) {
-  const { room } = await req.json();
+  try {
+    const { room } = await req.json();
 
-  const name = req.cookies.get("mock-user-name")?.value ?? "Anonymous";
-  const userId = `user-${crypto.randomUUID()}`;
-  const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+    const token = req.cookies.get("token")?.value;
 
-  const session = liveblocks.prepareSession(userId, {
-    userInfo: { name, color },
-  });
+    if (!token) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
 
-  session.allow(room, session.FULL_ACCESS);
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET!
+    ) as {
+      id: string;
+      name: string;
+      diagramlyId: string;
+    };
 
-  const { body, status } = await session.authorize();
+    const color =
+      COLORS[Math.floor(Math.random() * COLORS.length)];
 
-  return new NextResponse(body, { status });
+    const session = liveblocks.prepareSession(decoded.diagramlyId, {
+      userInfo: {
+        name: decoded.name,
+        color,
+      },
+    });
+
+    session.allow(room, session.FULL_ACCESS);
+
+    const { body, status } = await session.authorize();
+
+    return new NextResponse(body, { status });
+  } catch (error) {
+    console.error(error);
+
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 }
+    );
+  }
 }

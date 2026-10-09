@@ -9,8 +9,8 @@ export default function Home() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      router.push("/workspace");
-    }, 3000); // 3 seconds
+      router.push("/dashboard");
+    }, 5000); // 5 seconds
 
     return () => clearTimeout(timer);
   }, [router]);
@@ -18,7 +18,7 @@ export default function Home() {
   return (
     <div className="flex h-screen items-center justify-center bg-white">
       <Image
-        src="/logo-1.png"
+        src="/DIAGRAMLY.gif"
         alt="Diagramly"
         width={520}
         height={520}
