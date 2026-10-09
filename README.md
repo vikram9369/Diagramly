@@ -1,2 +1,1 @@
 # Diagramly
-Vikram Kushwaha
